@@ -23,8 +23,6 @@ use BotMan\Drivers\Telegram\Exceptions\TelegramException;
 class TelegramDriver extends HttpDriver
 {
     const DRIVER_NAME = 'Telegram';
-    const API_URL = 'https://api.telegram.org/bot';
-    const FILE_API_URL = 'https://api.telegram.org/file/bot';
 
     protected $endpoint = 'sendMessage';
 
@@ -52,7 +50,8 @@ class TelegramDriver extends HttpDriver
             'user_id' => $matchingMessage->getSender(),
         ];
 
-        $response = $this->http->post($this->buildApiUrl('getChatMember'), [], $parameters);
+        $response = $this->http->post('https://api.telegram.org/bot'.$this->config->get('token').'/getChatMember',
+            [], $parameters);
 
         $responseData = json_decode($response->getContent(), true);
 
@@ -198,7 +197,8 @@ class TelegramDriver extends HttpDriver
             'action' => 'typing',
         ];
 
-        return $this->http->post($this->buildApiUrl('sendChatAction'), [], $parameters);
+        return $this->http->post('https://api.telegram.org/bot'.$this->config->get('token').'/sendChatAction', [],
+            $parameters);
     }
 
     /**
@@ -210,13 +210,25 @@ class TelegramDriver extends HttpDriver
      */
     private function convertQuestion(Question $question)
     {
-        $replies = Collection::make($question->getButtons())->map(function ($button) {
-            return [
-                array_merge([
+        function isAssoc(array $arr) {
+            return array_keys($arr) !== range(0, count($arr) - 1);
+        }
+
+        $prepare = function () {
+            return function (array $button) {
+                return array_merge([
                     'text' => (string) $button['text'],
                     'callback_data' => (string) $button['value'],
-                ], $button['additional']),
-            ];
+                ], $button['additional']);
+            };
+        };
+
+        $replies = Collection::make($question->getButtons())->map(function ($button) use ($prepare) {
+            if (isAssoc($button)) {
+                return [ $prepare()($button) ];
+            }
+
+            return array_map($prepare(), $button);
         });
 
         return $replies->toArray();
@@ -237,7 +249,8 @@ class TelegramDriver extends HttpDriver
             'inline_keyboard' => [],
         ];
 
-        return $this->http->post($this->buildApiUrl('editMessageReplyMarkup'), [], $parameters);
+        return $this->http->post('https://api.telegram.org/bot'.$this->config->get('token').'/editMessageReplyMarkup',
+            [], $parameters);
     }
 
     /**
@@ -258,8 +271,11 @@ class TelegramDriver extends HttpDriver
          */
         if ($message instanceof Question) {
             $parameters['text'] = $message->getText();
+            $key = isset($additionalParameters['keyboard']) && $additionalParameters['keyboard'] === 'standard' ?
+                'keyboard' : 'inline_keyboard';
+
             $parameters['reply_markup'] = json_encode([
-                'inline_keyboard' => $this->convertQuestion($message),
+                $key => $this->convertQuestion($message),
             ], true);
         } elseif ($message instanceof OutgoingMessage) {
             if ($message->getAttachment() !== null) {
@@ -307,7 +323,8 @@ class TelegramDriver extends HttpDriver
      */
     public function sendPayload($payload)
     {
-        return $this->http->post($this->buildApiUrl($this->endpoint), [], $payload);
+        return $this->http->post('https://api.telegram.org/bot'.$this->config->get('token').'/'.$this->endpoint,
+            [], $payload);
     }
 
     /**
@@ -332,28 +349,7 @@ class TelegramDriver extends HttpDriver
             'chat_id' => $matchingMessage->getRecipient(),
         ], $parameters);
 
-        return $this->http->post($this->buildApiUrl($endpoint), [], $parameters);
-    }
-
-    /**
-     * Generate the Telegram API url for the given endpoint.
-     *
-     * @param $endpoint
-     * @return string
-     */
-    protected function buildApiUrl($endpoint)
-    {
-        return self::API_URL.$this->config->get('token').'/'.$endpoint;
-    }
-
-    /**
-     * Generate the Telegram File-API url for the given endpoint.
-     *
-     * @param $endpoint
-     * @return string
-     */
-    protected function buildFileApiUrl($endpoint)
-    {
-        return self::FILE_API_URL.$this->config->get('token').'/'.$endpoint;
+        return $this->http->post('https://api.telegram.org/bot'.$this->config->get('token').'/'.$endpoint, [],
+            $parameters);
     }
 }
